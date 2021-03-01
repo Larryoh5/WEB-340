@@ -12,6 +12,10 @@ var http = require('http');
 var logger = require('morgan');
 var path =  require('path');
 var mongoose = require('mongoose');
+var helmet = require ('helmet');
+var csrf = require("csurf");
+var bodyParser = require("body-parser");
+var cookieParser = require("cookie-parser");
 
 
 var Employee = require("./models/employee");
@@ -29,51 +33,99 @@ db.once("open", function () {
   console.log("Application connected to mLab MongoDB instance");
 });
 
-// Initialize app
 const app = express();
 
-// Employee model
-const employee = new Employee({
-  firstName: "Greg",
-  lastName: "Thomas",
+// Use Statements
+app.use(helmet.xssFilter());
+app.use(logger("short"));
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(cookieParser());
+app.use(csrfProtection);
+app.use(function (request, response, next) {
+  const token = request.csrfToken();
+  response.cookie("XSRF-TOKEN", token);
+  response.locals.csrfToken = token;
+  next();
 });
 
-var app = express();
-app.set("views", path.resolve(__dirname,"views"));
+app.set("views", path.resolve(__dirname, "views"));
 
+// Tell Express to use EJS
 app.set("view engine", "ejs");
 
-app.use(logger("short"));
+// Set the port
+app.set("port", process.env.PORT || 3000);
 
-
-//Home Page
-app.get("/", function(request,response){
-    response.render("index", {
-        title:"Home Page"
-    });
+app.get("/", function (request, response) {
+  response.render("index", {
+    title: "Home Page",
+    message: "XSS Prevention Example",
+  });
 });
 
-//View
-app.get("/view", function (request, response) {
-    response.render("view", {
-      title: "Manage",
-    });
+app.get("/new", function (request, response) {
+  response.render("new", {
+    title: "Add Employee",
   });
-  
-  // New
-  app.get("/new", function (request, response) {
-    response.render("new", {
-      title: "Add Employee",
-    });
+});
+
+app.get("/list", function (request, response) {
+  Employee.find({}, function (error, employees) {
+    if (error) throw error;
+    if (employees.length > 0)
+      response.render("list", {
+        title: "Employee List",
+        employees: employees,
+      });
   });
-  
-  // List
-  app.get("/list", function (request, response) {
-    response.render("list", {
-      title: "View Employes",
-    });
+});
+
+app.post("/process", function (request, response) {
+
+  if (!request.body.firstName && !request.body.lastName) {
+    response.status(400).send("Entries must have a name");
+    return;
+  }
+  const employeeName = request.body.firstName + request.body.lastName;
+  console.log(employeeName);
+
+ 
+  const employee = new Employee({
+    firstName: request.body.firstName,
+    lastName: request.body.lastName,
   });
 
+  // save
+  employee.save(function (err) {
+    if (err) {
+      console.log(err);
+      throw err;
+    } else {
+      console.log(employeeName + " saved successfully!");
+      response.redirect("/");
+    }
+  });
+});
+
+//Employees info
+app.get("/view/:queryName", function (req, res) {
+  var queryName = req.params["queryName"];
+  Employee.find({ lastName: queryName }, function (error, employees) {
+    if (error) {
+      console.log(error);
+      throw error;
+    } else {
+      console.log(employees);
+
+      if (employees.length > 0) {
+        res.render("view", {
+          title: "Manage",
+          employee: employees,
+        });
+      }
+    }
+  });
+});
 http.createServer(app).listen(8080, function(){
     console.log("Application started on port 8080");
 });
